@@ -36,11 +36,6 @@ def load_folder(folder: Path) -> pd.DataFrame:
             continue
     return pd.DataFrame(rows)
 
-
-
-
-
-
 # FinBERT (tone) — Labelordnung:
 # LABEL_0: neutral, LABEL_1: positive, LABEL_2: negative
 
@@ -80,3 +75,45 @@ if __name__ == "__main__":
 
     df = pd.concat(dfs, ignore_index=True)
     print("Total combined:", len(df))
+
+    df["text"] = df["text"].fillna("").astype(str).str.strip()
+    df = df.loc[df["text"].str.len() > 0].reset_index(drop=True)
+    
+    labels_raw = []
+    labels_clean = []
+    scores = [] 
+    signed = []
+    
+    def map_label(lbl: str) -> str:
+        if lbl in ("LABEL_0", "neutral"):  return "neutral"
+        if lbl in ("LABEL_1", "positive"): return "positive"
+        if lbl in ("LABEL_2", "negative"): return "negative"
+        return lbl
+    
+    texts = df["text_trunc"].tolist()
+    
+    for i in tqdm(range(0, len(texts), BATCH_SIZE), desc="FinBERT"):
+        out = nlp(texts[i:i+BATCH_SIZE], batch_size=BATCH_SIZE, truncation=True)
+
+    for res in out:
+        lbl_raw = res["label"]
+        lbl = map_label(lbl_raw)
+        sc = float(res["score"])
+        labels_raw.append(lbl_raw)
+        labels.append(lbl)
+        scores.append(sc)
+        signed.append(sc if lbl == "positive" else (-sc if lbl == "negative" else 0.0))
+
+    df["sent_label_raw"] = labels_raw
+    df["sent_label"] = labels
+    df["sent_score"] = scores
+    df["sent_score_signed"] = signed
+    df["text_snippet"] = df["text"].str.slice(0, 200)
+    
+    # save results to parquet
+    out_path = "data/processed/news_2018_01-05_finbert.parquet"
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    df[["dt","url","title","publisher","sent_label","sent_score","sent_score_signed","text_snippet"]].to_parquet(out_path, index=False)
+    print(f"✅ saved {len(df)} rows → {out_path}")
+
+
