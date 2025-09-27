@@ -65,11 +65,11 @@ nlp = pipeline("sentiment-analysis", model=finbert, tokenizer=tokenizer)
 if __name__ == "__main__":
     # news_article folders
     folders = [
-        Path("archive/2018_01_112b52537b67659ad3609a234388c50a"),
-        Path("archive/2018_02_112b52537b67659ad3609a234388c50a"),
-        Path("archive/2018_03_112b52537b67659ad3609a234388c50a"),
-        Path("archive/2018_04_112b52537b67659ad3609a234388c50a"),
-        Path("archive/2018_05_112b52537b67659ad3609a234388c50a"),
+        Path("/Users/heiner/archive/2018_01_112b52537b67659ad3609a234388c50a"),
+        Path("/Users/heiner/archive/2018_02_112b52537b67659ad3609a234388c50a"),
+        Path("/Users/heiner/archive/2018_03_112b52537b67659ad3609a234388c50a"),
+        Path("/Users/heiner/archive/2018_04_112b52537b67659ad3609a234388c50a"),
+        Path("/Users/heiner/archive/2018_05_112b52537b67659ad3609a234388c50a"),
     ]
 
     dfs = []
