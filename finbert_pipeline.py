@@ -43,6 +43,14 @@ def load_folder_recursive(root: Path) -> pd.DataFrame:
 # FinBERT (tone) — Labelordnung:
 # LABEL_0: neutral, LABEL_1: positive, LABEL_2: negative
 
+FOLDERS = [
+    Path("/Users/heiner/archive/2018_01_112b52537b67659ad3609a234388c50a"),
+    Path("/Users/heiner/archive/2018_02_112b52537b67659ad3609a234388c50a"),
+    Path("/Users/heiner/archive/2018_03_112b52537b67659ad3609a234388c50a"),
+    Path("/Users/heiner/archive/2018_04_112b52537b67659ad3609a234388c50a"),
+    Path("/Users/heiner/archive/2018_05_112b52537b67659ad3609a234388c50a"),
+]
+
 # finbert tone seems to be the best model to use for this purpose -> Quelle 1 & 2
 MODEL_NAME = "yiyanghkust/finbert-tone"
 BATCH_SIZE = 32
@@ -54,91 +62,73 @@ tokenizer = BertTokenizer.from_pretrained(MODEL_NAME)
 tokenizer.model_max_length = 512  # set max length for tokenizer
 nlp = pipeline("sentiment-analysis", model=finbert, tokenizer=tokenizer)
 
+# ==== FinBERT Setup ====
+def build_pipeline():
+    finbert = BertForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=3)
+    tokenizer = BertTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer.model_max_length = 512
+    return pipeline("sentiment-analysis", model=finbert, tokenizer=tokenizer)
 
-
-# sentences = ["there is a shortage of capital, and we need extra financing",  
-#             "growth is strong and we have plenty of liquidity", 
-#             "there are doubts about our finances", 
-#             "profits are flat"]
-# results = nlp(sentences)
-# print(results)  #LABEL_0: neutral; LABEL_1: positive; LABEL_2: negative
+def map_label(lbl: str) -> str:
+    if lbl in ("LABEL_0", "neutral"):  return "neutral"
+    if lbl in ("LABEL_1", "positive"): return "positive"
+    if lbl in ("LABEL_2", "negative"): return "negative"
+    return lbl
 
 if __name__ == "__main__":
-    # news_article folders
-    folders = [
-        Path("/Users/heiner/archive/2018_01_112b52537b67659ad3609a234388c50a"),
-        Path("/Users/heiner/archive/2018_02_112b52537b67659ad3609a234388c50a"),
-        Path("/Users/heiner/archive/2018_03_112b52537b67659ad3609a234388c50a"),
-        Path("/Users/heiner/archive/2018_04_112b52537b67659ad3609a234388c50a"),
-        Path("/Users/heiner/archive/2018_05_112b52537b67659ad3609a234388c50a"),
-    ]
-
-    dfs = []
-    for folder in folders:
+    # load raw news articles
+    parts = []
+    for folder in FOLDERS:
         df_part = load_folder_recursive(folder)
         print(f"{folder} → {len(df_part)} articles")
-        dfs.append(df_part)
-
-    df = pd.concat(dfs, ignore_index=True)
+        parts.append(df_part)
+    if not parts or sum(len(p) for p in parts) == 0:
+        raise SystemExit("No articles found. Check paths and file names.")
+    df = pd.concat(parts, ignore_index=True)
     print("Total combined:", len(df))
 
-    if "text" not in df.columns:
-        raise SystemExit("No 'text' column found after loading JSON. Check extract_record().")
+    # build daily corpus (NY time, per article snippet)
+    df["dt"] = pd.to_datetime(df["dt"], utc=True, errors="coerce")
+    df = df.dropna(subset=["dt"])
+    df["dt_ny"] = df["dt"].dt.tz_convert(ZoneInfo("America/New_York"))
+    df["day"] = df["dt_ny"].dt.floor("D")
 
-    # remove empty or missing texts
-    df["text"] = df["text"].fillna("").astype(str).str.strip()
-    df = df.loc[df["text"].str.len() > 0].reset_index(drop=True)
+    # only snippet per day so that one long article does not dominate the sentiment
+    df["snippet"] = df["text"].astype(str).str.slice(0, SNIPPET_PER_ARTICLE).str.replace(r"\s+", " ", regex=True)
 
-    # create truncated text version for processing
-    df["text_trunc"] = df["text"].str.slice(0, MAX_CHARS)
-    
-    # if df is empty after cleanting, exit
-    if df.empty:
-        raise SystemExit("After cleaning, no articles with non-empty text remained.")
-    
-    
-    
-    labels_raw = []
-    labels_clean = []
-    scores = [] 
-    signed = []
-    
-    def map_label(lbl: str) -> str:
-        if lbl in ("LABEL_0", "neutral"):  return "neutral"
-        if lbl in ("LABEL_1", "positive"): return "positive"
-        if lbl in ("LABEL_2", "negative"): return "negative"
-        return lbl
-    
-    texts = df["text_trunc"].tolist()
-    
-    for i in tqdm(range(0, len(texts), BATCH_SIZE), desc="FinBERT"):
-        out = nlp(
-            texts[i:i+BATCH_SIZE],
-            batch_size=BATCH_SIZE,
-            truncation=True,
-            padding=True,
-            max_length=512
-        )
+    daily = (
+        df.groupby("day")
+          .agg(
+              n_articles=("snippet", "size"),
+              daily_text=("snippet", lambda s: " [SEP] ".join(s.tolist())[:200000])  # harte Kappung auf 200k chars
+          )
+          .reset_index()
+          .sort_values("day")
+    )
+    print("Days:", len(daily))
 
-    for res in out:
-        lbl_raw = res["label"]
-        lbl = map_label(lbl_raw)
-        sc = float(res["score"])
-        labels_raw.append(lbl_raw)
-        labels.append(lbl)
-        scores.append(sc)
-        signed.append(sc if lbl == "positive" else (-sc if lbl == "negative" else 0.0))
+    # FinBERT once per day
+    nlp = build_pipeline()
+    labels, scores, signed = [], [], []
 
-    df["sent_label_raw"] = labels_raw
-    df["sent_label"] = labels
-    df["sent_score"] = scores
-    df["sent_score_signed"] = signed
-    df["text_snippet"] = df["text"].str.slice(0, 200)
-    
-    # save results to parquet
-    out_path = "data/processed/news_2018_01-05_finbert.parquet"
-    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    df[["dt","url","title","publisher","sent_label","sent_score","sent_score_signed","text_snippet"]].to_parquet(out_path, index=False)
-    print(f"✅ saved {len(df)} rows → {out_path}")
+    texts = daily["daily_text"].tolist()
+    for i in tqdm(range(0, len(texts), BATCH_SIZE), desc="FinBERT daily"):
+        chunk = texts[i:i+BATCH_SIZE]
+        out = nlp(chunk, batch_size=BATCH_SIZE, truncation=True, padding=True, max_length=512)
+        for r in out:
+            lbl = map_label(r["label"])
+            sc  = float(r["score"])
+            labels.append(lbl)
+            scores.append(sc)
+            signed.append(sc if lbl == "positive" else (-sc if lbl == "negative" else 0.0))
+
+    daily["sent_label"] = labels
+    daily["sent_score"] = scores
+    daily["sent_score_signed"] = signed
+
+    # save data output as parquet
+    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    daily[["day","n_articles","sent_label","sent_score","sent_score_signed"]].to_parquet(OUT_PATH, index=False)
+    print(f"✅ saved: {OUT_PATH}  | days: {len(daily)}")
 
 
