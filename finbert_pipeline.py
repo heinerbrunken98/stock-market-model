@@ -61,3 +61,22 @@ nlp = pipeline("sentiment-analysis", model=finbert, tokenizer=tokenizer)
 #             "profits are flat"]
 # results = nlp(sentences)
 # print(results)  #LABEL_0: neutral; LABEL_1: positive; LABEL_2: negative
+
+if __name__ == "__main__":
+    # news_article folders
+    folders = [
+        Path("archive/2018_01_112b52537b67659ad3609a234388c50a"),
+        Path("archive/2018_02_112b52537b67659ad3609a234388c50a"),
+        Path("archive/2018_03_112b52537b67659ad3609a234388c50a"),
+        Path("archive/2018_04_112b52537b67659ad3609a234388c50a"),
+        Path("archive/2018_05_112b52537b67659ad3609a234388c50a"),
+    ]
+
+    dfs = []
+    for folder in folders:
+        df_part = load_folder(folder)
+        print(f"{folder} → {len(df_part)} articles")
+        dfs.append(df_part)
+
+    df = pd.concat(dfs, ignore_index=True)
+    print("Total combined:", len(df))
