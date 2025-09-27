@@ -1,8 +1,24 @@
 from transformers import BertTokenizer, BertForSequenceClassification
 from transformers import pipeline
+import pandas as pd
 
 # before the model does anything we need to load and prepare the raw data
 
+def extract_record(js: dict) -> dict | None:
+    # transform date string to datetime object
+    dt = js.get("published") or js.get("thread", {}).get("published")
+    dt = pd.to_datetime(dt, utc=True, errors="coerce")
+    if pd.isna(dt):
+        return None
+    
+    # extract relevant fields
+    return {
+        "dt": dt,
+        "url": js.get("thread", {}).get("url"),
+        "title": js.get("thread", {}).get("title_full"),
+        "publisher": js.get("thread", {}).get("site_full"),
+        "text": js.get("text", "").strip(),
+    }
 
 
 
