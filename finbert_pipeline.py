@@ -112,7 +112,13 @@ if __name__ == "__main__":
     texts = df["text_trunc"].tolist()
     
     for i in tqdm(range(0, len(texts), BATCH_SIZE), desc="FinBERT"):
-        out = nlp(texts[i:i+BATCH_SIZE], batch_size=BATCH_SIZE, truncation=True)
+        out = nlp(
+            texts[i:i+BATCH_SIZE],
+            batch_size=BATCH_SIZE,
+            truncation=True,
+            padding=True,
+            max_length=512
+        )
 
     for res in out:
         lbl_raw = res["label"]
