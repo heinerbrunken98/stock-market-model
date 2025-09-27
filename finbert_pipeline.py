@@ -2,6 +2,8 @@ from pathlib import Path
 from transformers import BertTokenizer, BertForSequenceClassification
 from transformers import pipeline
 import pandas as pd
+import json
+from tqdm import tqdm
 
 
 # before the model does anything we need to load and prepare the raw data
@@ -22,19 +24,21 @@ def extract_record(js: dict) -> dict | None:
         "text": js.get("text", "").strip(),
     }
 
-def load_folder(folder: Path) -> pd.DataFrame:
-    # iterative over all json files in the folder
+def load_folder_recursive(root: Path) -> pd.DataFrame:
     rows = []
-    for path in folder.glob("*.json"):
+    files = list(root.rglob("*.json"))  
+    print(f"[scan] {root} -> {len(files)} files")
+    for path in files:
         try:
             with path.open("r", encoding="utf-8") as f:
                 js = json.load(f)
             rec = extract_record(js)
             if rec:
                 rows.append(rec)
-        except Exception:
+        except Exception as e:
             continue
     return pd.DataFrame(rows)
+
 
 # FinBERT (tone) — Labelordnung:
 # LABEL_0: neutral, LABEL_1: positive, LABEL_2: negative
@@ -42,6 +46,7 @@ def load_folder(folder: Path) -> pd.DataFrame:
 # finbert tone seems to be the best model to use for this purpose -> Quelle 1 & 2
 MODEL_NAME = "yiyanghkust/finbert-tone"
 BATCH_SIZE = 64
+MAX_CHARS = 4000 
 
 finbert = BertForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=3)
 tokenizer = BertTokenizer.from_pretrained(MODEL_NAME)
@@ -69,15 +74,28 @@ if __name__ == "__main__":
 
     dfs = []
     for folder in folders:
-        df_part = load_folder(folder)
+        df_part = load_folder_recursive(folder)
         print(f"{folder} → {len(df_part)} articles")
         dfs.append(df_part)
 
     df = pd.concat(dfs, ignore_index=True)
     print("Total combined:", len(df))
 
+    if "text" not in df.columns:
+        raise SystemExit("No 'text' column found after loading JSON. Check extract_record().")
+
+    # remove empty or missing texts
     df["text"] = df["text"].fillna("").astype(str).str.strip()
     df = df.loc[df["text"].str.len() > 0].reset_index(drop=True)
+
+    # create truncated text version for processing
+    df["text_trunc"] = df["text"].str.slice(0, MAX_CHARS)
+    
+    # if df is empty after cleanting, exit
+    if df.empty:
+        raise SystemExit("After cleaning, no articles with non-empty text remained.")
+    
+    
     
     labels_raw = []
     labels_clean = []
