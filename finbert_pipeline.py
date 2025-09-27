@@ -1,6 +1,8 @@
+from pathlib import Path
 from transformers import BertTokenizer, BertForSequenceClassification
 from transformers import pipeline
 import pandas as pd
+
 
 # before the model does anything we need to load and prepare the raw data
 
@@ -19,6 +21,22 @@ def extract_record(js: dict) -> dict | None:
         "publisher": js.get("thread", {}).get("site_full"),
         "text": js.get("text", "").strip(),
     }
+
+def load_folder(folder: Path) -> pd.DataFrame:
+    # iterative over all json files in the folder
+    rows = []
+    for path in folder.glob("*.json"):
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                js = json.load(f)
+            rec = extract_record(js)
+            if rec:
+                rows.append(rec)
+        except Exception:
+            continue
+    return pd.DataFrame(rows)
+
+
 
 
 
