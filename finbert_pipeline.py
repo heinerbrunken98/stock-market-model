@@ -51,6 +51,7 @@ MAX_CHARS = 4000
 finbert = BertForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=3)
 tokenizer = BertTokenizer.from_pretrained(MODEL_NAME)
 
+tokenizer.model_max_length = 512  # set max length for tokenizer
 nlp = pipeline("sentiment-analysis", model=finbert, tokenizer=tokenizer)
 
 
