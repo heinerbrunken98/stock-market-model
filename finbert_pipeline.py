@@ -45,7 +45,7 @@ def load_folder_recursive(root: Path) -> pd.DataFrame:
 
 # finbert tone seems to be the best model to use for this purpose -> Quelle 1 & 2
 MODEL_NAME = "yiyanghkust/finbert-tone"
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 MAX_CHARS = 4000 
 
 finbert = BertForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=3)
