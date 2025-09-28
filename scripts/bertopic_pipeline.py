@@ -1,53 +1,54 @@
+#!/usr/bin/env python3
 """
-Guided BERTopic — clearer macro topics per article (single folder)
+Guided BERTopic — patched for clearer macro topics (single folder)
 
-This pipeline is tuned to surface crisp macro themes (e.g., earnings, inflation/CPI, Fed/Powell/rates,
-trade/tariffs, jobs/NFP, oil) and to reduce PR/IR noise (appointments, generic dividends, boilerplate).
+What changed vs. prior version
+- Data cleanup: optional **PR-wire exclusion**, **title deduplication**, optional **macro-only** subset.
+- Text shaping: synonym normalization + optional **macro keyword boosting**.
+- Vectorizer: default **trigrams (1–3)**, stricter **max_df=0.85**, **min_df=20**.
+- Clustering: UMAP(n_neighbors=30) + HDBSCAN(**prediction_data=True**, cluster_selection_method='leaf').
+- Representation: KeyBERTInspired fallback across BERTopic versions; optional POS.
+- Compatibility: robust to older BERTopic (no 'diversity' arg), optional seed topics if supported by your version.
 
-Key ideas
-- Text prep: use title + body, normalize synonyms ("federal reserve"→"fed", etc.), add finance-specific stopwords,
-  and allow up to trigrams so phrases like "consumer price index" survive.
-- Clustering: smaller clusters (min_topic_size), explicit UMAP/HDBSCAN with a seed for reproducibility.
-- Optional guidance: seed topics to gently pull documents into macro buckets.
-- Representation: optionally use KeyBERT-inspired & Part-of-Speech representations for cleaner labels.
+Outputs (same as before)
+- Topic labels parquet: data/features/bertopic_topic_labels.parquet
+- Daily Top-K topics parquet: data/features/bertopic_daily_top15.parquet
 
-Outputs
-- Topic labels: data/features/bertopic_topic_labels.parquet  (topic_id ↔ label words, counts)
-- Daily Top-K:  data/features/bertopic_daily_top15.parquet  (per-day top topics with counts & shares)
+Examples
+    # default folder (Feb 2018), PR filtered, boost macro, macro-only OFF
+    python bertopic_pipeline_guided_en_patched.py
 
-CLI examples
-- Default folder (Feb 2018):
-    python bertopic_pipeline_guided_en.py
-- Specific folder:
-    python bertopic_pipeline_guided_en.py "/Users/heiner/archive/2018_02_112b52537b67659ad3609a234388c50a"
-- With seed topics & multilingual embeddings:
-    python bertopic_pipeline_guided_en.py --seeded --multilingual
-- With post-hoc topic reduction to ~50 clusters (best-effort):
-    python bertopic_pipeline_guided_en.py --seeded --reduce-topics 50
+    # explicit folder, macro-only ON, reduce to 50 topics post-hoc
+    python bertopic_pipeline_guided_en_patched.py \
+        "/Users/heiner/archive/2018_02_112b52537b67659ad3609a234388c50a" \
+        --macro-only --reduce-topics 50
+
+    # keep PR wires (not recommended), multilingual, seeds
+    python bertopic_pipeline_guided_en_patched.py --include-pr --multilingual --seeded
 """
 
 import os
 os.environ["USE_TF"] = "0"
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 import re
 import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-from tqdm import tqdm
 from bertopic import BERTopic
 from sklearn.feature_extraction.text import CountVectorizer
 from sentence_transformers import SentenceTransformer
 import argparse
 
-# Optional representations — guarded so the script still runs if the packages/models are missing
+# Optional representations — guarded for compatibility
 try:
     from bertopic.representation import KeyBERTInspired, PartOfSpeech
     HAVE_REP = True
 except Exception:
     HAVE_REP = False
 
-# Optional explicit clustering backends (recommended for reproducibility)
+# Optional explicit clustering backends
 try:
     from umap import UMAP
     from hdbscan import HDBSCAN
@@ -58,20 +59,20 @@ except Exception:
 # -----------------------
 # Defaults / Paths
 # -----------------------
-SNIPPET_MAX_CHARS = 1200           # max characters for title+body per doc
-SAMPLE_MAX = 120_000               # cap documents used for fitting (transform uses all)
+SNIPPET_MAX_CHARS = 1200
+SAMPLE_MAX = 120_000
 TOP_K_PER_DAY = 15
-OUT_TOPICS = Path("/Users/heiner/stock-market-model/data/bertopic/new/02_daily_top15.parquet")
-OUT_TOPIC_LABELS = Path("/Users/heiner/stock-market-model/data/bertopic/new/02_topic_labels.parquet")
+OUT_TOPICS = Path("/Users/heiner/stock-market-model/data/bertopic/new/03_daily_top15.parquet")
+OUT_TOPIC_LABELS = Path("/Users/heiner/stock-market-model/data/bertopic/new/03_topic_labels.parquet")
+
+PR_DOMAINS = ("businesswire", "globenewswire", "prnewswire")
+MACRO_RE = re.compile(r"\b(fed|fomc|powell|rates?|cpi|inflation|ppi|tariffs?|trade|china|jobs|nfp|unemployment|oil|opec|wti|brent|crude|earnings|eps|revenue)\b")
 
 # -----------------------
 # Loader
 # -----------------------
 
 def extract_record(js: dict):
-    """Extract a minimal article record from a raw news JSON.
-    Returns None if datetime is missing or both title and text are empty.
-    """
     dt = js.get("published") or js.get("thread", {}).get("published")
     dt = pd.to_datetime(dt, utc=True, errors="coerce")
     if pd.isna(dt):
@@ -88,8 +89,8 @@ def extract_record(js: dict):
         "text": text,
     }
 
+
 def load_folder_recursive(root: Path) -> pd.DataFrame:
-    """Recursively load all *.json files under a folder into a DataFrame of article records."""
     rows = []
     files = list(root.rglob("*.json"))
     print(f"[scan] {root} -> {len(files)} files")
@@ -101,27 +102,24 @@ def load_folder_recursive(root: Path) -> pd.DataFrame:
             if rec:
                 rows.append(rec)
         except Exception:
-            # swallow and continue; some files may be malformed
             continue
     return pd.DataFrame(rows)
 
 # -----------------------
-# Text normalization / domain rules
+# Text normalization and boosting
 # -----------------------
 
-# Finance/PR stopwords to de-emphasize boilerplate and corporate IR jargon
 FINANCE_STOPS = {
     # PR/IR boilerplate, legal forms
     "inc","corp","co","company","ltd","plc","llc","press","release","announced","announces",
     "report","reports","reported","update","updates","today","news","businesswire","globenewswire",
     "prnewswire","nasdaq","nyse","marketwatch","reuters","bloomberg",
-    # common market terms that wash out signal
+    # generic market noise
     "share","shares","stock","stocks","market","markets","equity","equities","securities",
     "common","outstanding","board","executive","chief","officer","appointed","appointment",
     "dividend","quarter","quarterly","q1","q2","q3","q4","fiscal","guidance",
 }
 
-# Synonym/phrase normalization so key macro concepts cluster together
 REPLACE_PATTERNS = [
     (r"\bfederal reserve\b", "fed"),
     (r"\bjerome powell\b|\bchair(wo)?man powell\b|\bpowell\b", "powell"),
@@ -135,71 +133,101 @@ REPLACE_PATTERNS = [
     (r"\bearning(s)?\b|\bresults\b|\bprofit\b|\bnet income\b|\brevenue\b|\beps\b", "earnings"),
 ]
 
+BOOST_RULES = [
+    (r"\b(cpi|inflation|ppi)\b", " cpi inflation"),
+    (r"\b(fed|fomc|powell|rates?)\b", " fed powell rates"),
+    (r"\b(tariffs?|trade|china)\b", " tariffs trade"),
+    (r"\b(jobs|nfp|unemployment)\b", " jobs nfp"),
+    (r"\b(oil|opec|wti|brent|crude)\b", " oil"),
+    (r"\b(earnings|eps|revenue)\b", " earnings"),
+]
+
 def normalize_text(s: str) -> str:
-    """Lowercase + apply regex-based synonym normalization + whitespace squeeze."""
     s = (s or "").lower()
     for pat, rep in REPLACE_PATTERNS:
         s = re.sub(pat, rep, s)
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
+
+def boost_macro(s: str) -> str:
+    out = s
+    for pat, add in BOOST_RULES:
+        if re.search(pat, out):
+            out += add
+    return out
+
 # -----------------------
 # Main
 # -----------------------
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Guided BERTopic — ONE folder, clearer macro topics per article")
-    parser.add_argument("folder", type=str, nargs="?", default=None,
-                        help="Path to the news folder (process ONE folder only)")
-    parser.add_argument("--out-topics", type=str, default=str(OUT_TOPICS),
-                        help="Output parquet for daily Top-K topics")
-    parser.add_argument("--out-topic-labels", type=str, default=str(OUT_TOPIC_LABELS),
-                        help="Output parquet for topic labels")
-    parser.add_argument("--multilingual", action="store_true",
-                        help="Use multilingual embeddings (paraphrase-multilingual-MiniLM-L12-v2)")
-    parser.add_argument("--seeded", action="store_true",
-                        help="Enable seed topics (earnings, cpi, fed, tariffs, jobs, oil)")
-    parser.add_argument("--reduce-topics", type=int, default=0,
-                        help="Optionally reduce topics to N clusters after fitting (0=off)")
-    parser.add_argument("--min-topic-size", type=int, default=50,
-                        help="BERTopic min_topic_size / HDBSCAN min_cluster_size (default=50)")
-    parser.add_argument("--max-df", type=float, default=0.90,
-                        help="Vectorizer max_df (default=0.90)")
-    parser.add_argument("--min-df", type=int, default=10,
-                        help="Vectorizer min_df (default=10)")
-    parser.add_argument("--ngram-max", type=int, default=3,
-                        help="Use ngram_range=(1,N); default N=3")
-    parser.add_argument("--doc-max-chars", type=int, default=SNIPPET_MAX_CHARS,
-                        help="Max length for title+body doc; default=1200")
-    parser.add_argument("--top-k-per-day", type=int, default=TOP_K_PER_DAY,
-                        help="Keep Top-K topics per day; default=15")
-    args = parser.parse_args()
+    ap = argparse.ArgumentParser(description="Guided BERTopic — clearer macro topics (single folder)")
+    ap.add_argument("folder", type=str, nargs="?", default=None, help="Path to ONE news folder")
+    ap.add_argument("--out-topics", type=str, default=str(OUT_TOPICS), help="Daily Top-K topics parquet path")
+    ap.add_argument("--out-topic-labels", type=str, default=str(OUT_TOPIC_LABELS), help="Topic labels parquet path")
+    ap.add_argument("--multilingual", action="store_true", help="Use paraphrase-multilingual-MiniLM-L12-v2")
+    ap.add_argument("--seeded", action="store_true", help="Try seed topics (if your BERTopic supports it)")
+    ap.add_argument("--reduce-topics", type=int, default=0, help="Reduce topics to N after fitting (0=off)")
+    ap.add_argument("--min-topic-size", type=int, default=40, help="HDBSCAN/BERTopic min_topic_size (default=40)")
+    ap.add_argument("--max-df", type=float, default=0.85, help="Vectorizer max_df (default=0.85)")
+    ap.add_argument("--min-df", type=int, default=20, help="Vectorizer min_df (default=20)")
+    ap.add_argument("--ngram-max", type=int, default=3, help="Use ngram_range=(1,N); default N=3")
+    ap.add_argument("--doc-max-chars", type=int, default=SNIPPET_MAX_CHARS, help="Doc length cap (title+body)")
+    ap.add_argument("--top-k-per-day", type=int, default=TOP_K_PER_DAY, help="Keep Top-K topics per day")
+    ap.add_argument("--include-pr", action="store_true", help="Keep PR wires (default: excluded)")
+    ap.add_argument("--macro-only", action="store_true", help="Keep only documents matching macro regex")
+    ap.add_argument("--no-boost", action="store_true", help="Disable macro keyword boosting")
+    args = ap.parse_args()
 
-    # Resolve folder (default: Feb 2018 folder)
+    # Resolve folder (default: Feb 2018)
     if args.folder is None:
-        root = Path("/Users/heiner/archive/2018_02_112b52537b67659ad3609a234388c50a")
+        root = Path("/Users/heiner/archive/2018_03_112b52537b67659ad3609a234388c50a")
         print(f"[info] No folder argument given. Using default: {root}")
     else:
         root = Path(args.folder)
     if not root.exists():
         raise SystemExit(f"Folder not found: {root}")
 
-    # 1) Load data (ONE folder)
+    # Load
     df = load_folder_recursive(root)
     if df.empty:
         raise SystemExit("No articles found. Check path and files.")
-    print("Total articles:", len(df))
+    print("Total raw articles:", len(df))
 
-    # 2) Build day index in NY time & construct per-article document (title + body)
+    # Time index (NY) and document build
     df["dt"] = pd.to_datetime(df["dt"], utc=True, errors="coerce")
     df = df.dropna(subset=["dt"]).copy()
     df["dt_ny"] = df["dt"].dt.tz_convert(ZoneInfo("America/New_York"))
     df["day"] = df["dt_ny"].dt.floor("D")
 
+    # PR filter (default ON)
+    if not args.include_pr:
+        mask_pr = df["publisher"].fillna("").str.contains("|".join(PR_DOMAINS), case=False)
+        before = len(df)
+        df = df.loc[~mask_pr].copy()
+        print(f"[filter] Excluded PR wires: {before - len(df)} removed → {len(df)} remain")
+
+    # Build doc: title + body → normalize → optional macro-only → dedup titles → optional boosting
     raw_doc = (df["title"].fillna("") + ". " + df["text"].fillna("")).str.slice(0, args.doc_max_chars)
     df["doc"] = raw_doc.apply(normalize_text)
 
-    # 3) Prepare fit documents (sample evenly over time if needed)
+    if args.macro_only:
+        before = len(df)
+        df = df.loc[df["doc"].str.contains(MACRO_RE)].copy()
+        print(f"[filter] Macro-only: {before - len(df)} removed → {len(df)} remain")
+
+    # Title dedup
+    df["title_norm"] = df["title"].fillna("").str.lower().str.replace(r"\s+", " ", regex=True)
+    before = len(df)
+    df = df.drop_duplicates(subset=["title_norm"]).copy()
+    print(f"[dedup] Title dedup: {before - len(df)} removed → {len(df)} remain")
+
+    # Optional boosting
+    if not args.no_boost:
+        df["doc"] = df["doc"].apply(boost_macro)
+
+    # Prepare fit docs (balanced over days if large)
     docs_all = df["doc"].tolist()
     if len(docs_all) > SAMPLE_MAX:
         per_day = max(50, min(1000, SAMPLE_MAX // max(1, df["day"].nunique())))
@@ -210,17 +238,15 @@ if __name__ == "__main__":
         docs_fit = docs_all
         print(f"Fitting BERTopic on all docs: {len(docs_fit)}")
 
-    # 4) Initialize models
+    # Initialize models
     emb_name = (
         "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2" if args.multilingual
         else "sentence-transformers/all-MiniLM-L6-v2"
     )
     embedding_model = SentenceTransformer(emb_name)
 
-    # Build stopword list (English + finance/PR)
     base_stop = CountVectorizer(stop_words="english").get_stop_words()
     stop_words = list(set(base_stop).union(FINANCE_STOPS))
-
     vectorizer_model = CountVectorizer(
         stop_words=stop_words,
         max_df=args.max_df,
@@ -231,10 +257,16 @@ if __name__ == "__main__":
     umap_model = None
     hdbscan_model = None
     if HAVE_CLUSTER:
-        umap_model = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric="cosine", random_state=42)
-        hdbscan_model = HDBSCAN(min_cluster_size=max(5, args.min_topic_size), min_samples=5, metric="euclidean")
+        umap_model = UMAP(n_neighbors=30, n_components=5, min_dist=0.0, metric="cosine", random_state=42)
+        hdbscan_model = HDBSCAN(
+            min_cluster_size=max(5, args.min_topic_size),
+            min_samples=5,
+            metric="euclidean",
+            prediction_data=True,
+            cluster_selection_method="leaf",
+        )
 
-    # Optional seed topics to guide clustering toward macro themes
+    # Seed topics (best-effort, may be ignored on older versions)
     seed_topic_list = None
     if args.seeded:
         seed_topic_list = [
@@ -246,20 +278,18 @@ if __name__ == "__main__":
             ["oil","crude","opec","brent","wti"],
         ]
 
-    # Optional representation models for clearer labels
+    # Representation models (fallback across versions)
     rep_models = None
-if HAVE_REP:
-    try:
-        # Newer BERTopic: supports 'diversity'
-        rep = KeyBERTInspired(diversity=0.5)
-    except TypeError:
-        # Older BERTopic: no 'diversity' parameter
-        rep = KeyBERTInspired()
-    rep_models = [rep]
-    try:
-        rep_models.append(PartOfSpeech("en_core_web_sm", top_n=10, constraint="NOUN|PROPN"))
-    except Exception:
-        pass  # spaCy model not available -> fine to skip
+    if HAVE_REP:
+        try:
+            rep = KeyBERTInspired(diversity=0.5)
+        except TypeError:
+            rep = KeyBERTInspired()
+        rep_models = [rep]
+        try:
+            rep_models.append(PartOfSpeech("en_core_web_sm", top_n=10, constraint="NOUN|PROPN"))
+        except Exception:
+            pass
 
     topic_model = BERTopic(
         embedding_model=embedding_model,
@@ -275,45 +305,39 @@ if HAVE_REP:
         seed_topic_list=seed_topic_list,
     )
 
-    # 5) Fit on (sampled) docs
+    # Fit on (sampled) docs
     _topics_fit, _ = topic_model.fit_transform(docs_fit)
 
-    # 6) Transform all documents (no refit)
+    # Transform all docs
     topics_all, _ = topic_model.transform(docs_all)
     df["topic"] = topics_all  # -1 = outlier/noise
 
-    # 6b) Optional coarse reduction to N topics
+    # Optional reduce
     if args.reduce_topics and args.reduce_topics > 0:
         try:
-            # Newer BERTopic returns (new_topics, new_probs) and updates the model in-place
             new_topics, _ = topic_model.reduce_topics(docs_all, topics=topics_all, nr_topics=args.reduce_topics)
             df["topic"] = new_topics
         except TypeError:
             try:
-                # Some versions return a new model; try to capture it
                 reduced_model, new_topics = topic_model.reduce_topics(docs_all, topics_all, nr_topics=args.reduce_topics)
                 topic_model = reduced_model
                 df["topic"] = new_topics
             except Exception as e:
                 print(f"[warn] Topic reduction failed ({e}); continuing without reduction.")
 
-    # 7) Persist topic labels (topic_id -> label words, counts)
+    # Save labels
     topic_info = topic_model.get_topic_info().rename(columns={"Topic": "topic_id", "Name": "topic_label"})
     OUT_TOPIC_LABELS = Path(args.out_topic_labels)
     OUT_TOPIC_LABELS.parent.mkdir(parents=True, exist_ok=True)
     topic_info[["topic_id", "topic_label", "Count"]].to_parquet(OUT_TOPIC_LABELS, index=False)
     print(f"Saved topic labels → {OUT_TOPIC_LABELS}")
 
-    # 8) Per-day Top-K topics by frequency (exclude outliers)
+    # Daily Top-K (exclude -1)
     df_valid = df[df["topic"] != -1].copy()
-
-    counts = (
-        df_valid.groupby(["day", "topic"]).size().reset_index(name="count")
-    )
+    counts = df_valid.groupby(["day", "topic"]).size().reset_index(name="count")
     total_per_day = counts.groupby("day")["count"].sum().rename("day_total")
     counts = counts.merge(total_per_day, on="day", how="left")
     counts["share"] = counts["count"] / counts["day_total"]
-
     counts["rank"] = counts.groupby("day")["count"].rank(method="first", ascending=False)
     topk = counts[counts["rank"] <= args.top_k_per_day].copy()
 

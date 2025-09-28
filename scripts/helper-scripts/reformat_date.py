@@ -24,8 +24,11 @@ import pandas as pd
 # out = Path("/Users/heiner/stock-market-model/data/finbert/03_per_articles_clean.parquet")
 
 # 03_per_day_finbert.parquet -> 03_per_day_finbert_clean.parquet
-inp = Path("/Users/heiner/stock-market-model/data/finbert/03_per_day_finbert.parquet")
-out = Path("/Users/heiner/stock-market-model/data/finbert/03_per_day_finbert_clean.parquet")
+# inp = Path("/Users/heiner/stock-market-model/data/finbert/03_per_day_finbert.parquet")
+# out = Path("/Users/heiner/stock-market-model/data/finbert/03_per_day_finbert_clean.parquet")
+
+inp = Path("/Users/heiner/stock-market-model/data/bertopic/new/total_daily_top15.parquet")
+out = Path("/Users/heiner/stock-market-model/data/bertopic/new/total_daily_top15_clean.parquet")
 
 # -----------------------
 
