@@ -248,12 +248,18 @@ if __name__ == "__main__":
 
     # Optional representation models for clearer labels
     rep_models = None
-    if HAVE_REP:
-        rep_models = [KeyBERTInspired(diversity=0.5)]
-        try:
-            rep_models.append(PartOfSpeech("en_core_web_sm", top_n=10, constraint="NOUN|PROPN"))
-        except Exception:
-            pass  # spaCy model not installed; KeyBERT-inspired alone still helps
+if HAVE_REP:
+    try:
+        # Newer BERTopic: supports 'diversity'
+        rep = KeyBERTInspired(diversity=0.5)
+    except TypeError:
+        # Older BERTopic: no 'diversity' parameter
+        rep = KeyBERTInspired()
+    rep_models = [rep]
+    try:
+        rep_models.append(PartOfSpeech("en_core_web_sm", top_n=10, constraint="NOUN|PROPN"))
+    except Exception:
+        pass  # spaCy model not available -> fine to skip
 
     topic_model = BERTopic(
         embedding_model=embedding_model,
