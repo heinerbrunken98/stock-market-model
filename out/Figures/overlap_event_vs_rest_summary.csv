@@ -1,0 +1,15 @@
+topic_simple,event_days,rest_days,event_total_count,rest_total_count,avg_count_per_event_day,avg_count_per_rest_day,total_presence_days
+pharma pharmaceuticals pharmaceutical,3,17,155,837,31.0,15.79245283018868,20
+earnings conference fourth,3,9,107,328,21.4,6.188679245283019,12
+fy earnings operating,2,9,60,336,12.0,6.339622641509434,11
+conference earnings financial,2,8,52,208,10.4,3.9245283018867925,10
+fy earnings eikon,2,5,63,184,12.6,3.4716981132075473,7
+initial public offering,2,4,68,119,13.6,2.2452830188679247,6
+tariffs trade china,1,5,37,137,7.4,2.5849056603773586,6
+super bowl nbc,1,3,34,80,6.8,1.509433962264151,4
+treasury yields inflation,2,1,47,11,9.4,0.20754716981132076,3
+spending congress congressional,1,2,35,45,7.0,0.8490566037735849,3
+earnings qtrly,1,2,35,44,7.0,0.8301886792452831,3
+self driving uber,1,1,39,33,7.8,0.6226415094339622,2
+immigration bipartisan senator,1,1,23,28,4.6,0.5283018867924528,2
+shareholder lawsuit filed,1,1,17,22,3.4,0.41509433962264153,2

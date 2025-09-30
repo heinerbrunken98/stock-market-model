@@ -6,7 +6,7 @@ import pandas as pd
 # --- fixed paths ---
 INP1 = Path("/Users/heiner/stock-market-model/data/finbert/02_per_articles_clean.parquet")
 INP2 = Path("/Users/heiner/stock-market-model/data/finbert/03_per_articles_clean.parquet")
-OUTP = Path("/Users/heiner/stock-market-model/data/finbert/total_per_articles_clean.parquet")
+OUTP = Path("/Users/heiner/stock-market-model/data/finbert/total_per_articles.parquet")
 
 # optional: set to True if you want to sort by 'day' after concat
 SORT_BY_DAY = True

@@ -7,6 +7,17 @@ CSV_PATH_PRICES = Path("/Users/heiner/stock-market-model/data/sp500_prices/sp500
 CSV_PATH_SENTIMENT = Path("/Users/heiner/stock-market-model/out/daily_joined.csv")
 OUT_PNG  = Path("/Users/heiner/stock-market-model/out/sent_vs_ret_eod.png")
 
+# adjust style for readability
+plt.rcParams.update({
+    "font.size": 12,          # Basisschriftgröße (alles)
+    "axes.labelsize": 16,     # Achsentitel
+    "axes.titlesize": 16,     # Plot-Titel
+    "xtick.labelsize": 14,    # x-Achsen Tick-Labels
+    "ytick.labelsize": 14,    # y-Achsen Tick-Labels
+    "legend.fontsize": 16     # Legende
+})
+
+
 # load
 df_prices = pd.read_csv(CSV_PATH_PRICES)
 df_prices["date"] = pd.to_datetime(df_prices["date"], format='mixed').dt.tz_localize(None)
@@ -25,7 +36,7 @@ spearman = s["mean_signed"].rank().corr(s["ret"].rank())
 # colors
 c1, c2 = "tab:blue", "tab:red"
 
-fig, ax1 = plt.subplots(figsize=(12, 5))
+fig, ax1 = plt.subplots(figsize=(12, 5.5))
 
 # line 1: sentiment (left axis)
 l1, = ax1.plot(df_sentiment["day"], df_sentiment["mean_signed"], color=c1, label="mean_signed (t)")
@@ -58,15 +69,12 @@ ax2.spines["right"].set_color(c2)
 
 # legend
 lines = [l1, l2]
-ax1.legend(lines, [ln.get_label() for ln in lines], loc="upper center")
+ax1.legend(lines, [ln.get_label() for ln in lines], loc="upper right")
 
-plt.title(
-    f"Sentiment (t) vs. Same-Day Return (open→close)\n"
-    f"Pearson={pearson:.3f} · Spearman={spearman:.3f}"
-)
+plt.setp(ax1.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
 plt.tight_layout()
-OUT_PNG.parent.mkdir(parents=True, exist_ok=True)
-plt.savefig(OUT_PNG, dpi=150)
+# OUT_PNG.parent.mkdir(parents=True, exist_ok=True)
+# lt.savefig(OUT_PNG, dpi=150)
 plt.close()
 
 print(f"Pearson={pearson:.3f} · Spearman={spearman:.3f}")

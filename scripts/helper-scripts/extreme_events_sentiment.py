@@ -6,7 +6,7 @@ import numpy as np
 BASE = Path("/Users/heiner/stock-market-model")
 PRICES_CSV = BASE / "data/sp500_prices/sp500_prices.csv"                
 SENT_DAILY = BASE / "data/finbert/total_per_day.parquet"        
-OUT_CSV    = BASE / "out/extreme_events_s_t-1.xlsx"
+OUT_CSV    = BASE / "out/extreme_events.csv"
 OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
 
 # N% absolute move
@@ -44,23 +44,16 @@ def main():
         allow_exact_matches=False,   # strictly t-1 (no same-day)
     )
 
-    # optional: rename to make t-1 explicit
-    out = out.rename(columns={
-        "mean_signed": "mean_signed_tminus1",
-        "pos_share": "pos_share_tminus1",
-        "neg_share": "neg_share_tminus1",
-        "n_articles": "n_articles_tminus1",
-    })
+    
+    out = out.reset_index(drop=True)
+    out.insert(0, "id", out.index + 1)
+    out = out[["id", "day", "pct_move", "direction"]]
+    # output for latex tables 
+    # out["pct_move"] = (out["pct_move"] * 100).round(2).astype(str) + r"\%"
 
-    out = out[[
-        "day", "pct_move", "direction", "open", "close",
-        "mean_signed_tminus1", "pos_share_tminus1", "neg_share_tminus1", "n_articles_tminus1",
-        "day_sent"  # keep to see which prior day was used
-    ]]
-
-    OUT_XLSX = OUT_CSV.with_suffix(".xlsx")
-    out.to_excel(OUT_XLSX, index=False)
-    print(f"✅ Saved → {OUT_XLSX}")
+    
+    out.to_csv(OUT_CSV, index=False)
+    print(f"✅ Saved → {OUT_CSV}")
 
 if __name__ == "__main__":
     main()

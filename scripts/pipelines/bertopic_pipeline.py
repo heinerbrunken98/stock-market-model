@@ -1,32 +1,3 @@
-#!/usr/bin/env python3
-"""
-Guided BERTopic — patched for clearer macro topics (single folder)
-
-What changed vs. prior version
-- Data cleanup: optional **PR-wire exclusion**, **title deduplication**, optional **macro-only** subset.
-- Text shaping: synonym normalization + optional **macro keyword boosting**.
-- Vectorizer: default **trigrams (1–3)**, stricter **max_df=0.85**, **min_df=20**.
-- Clustering: UMAP(n_neighbors=30) + HDBSCAN(**prediction_data=True**, cluster_selection_method='leaf').
-- Representation: KeyBERTInspired fallback across BERTopic versions; optional POS.
-- Compatibility: robust to older BERTopic (no 'diversity' arg), optional seed topics if supported by your version.
-
-Outputs (same as before)
-- Topic labels parquet: data/features/bertopic_topic_labels.parquet
-- Daily Top-K topics parquet: data/features/bertopic_daily_top15.parquet
-
-Examples
-    # default folder (Feb 2018), PR filtered, boost macro, macro-only OFF
-    python bertopic_pipeline_guided_en_patched.py
-
-    # explicit folder, macro-only ON, reduce to 50 topics post-hoc
-    python bertopic_pipeline_guided_en_patched.py \
-        "/Users/heiner/archive/2018_02_112b52537b67659ad3609a234388c50a" \
-        --macro-only --reduce-topics 50
-
-    # keep PR wires (not recommended), multilingual, seeds
-    python bertopic_pipeline_guided_en_patched.py --include-pr --multilingual --seeded
-"""
-
 import os
 os.environ["USE_TF"] = "0"
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -161,10 +132,6 @@ def boost_macro(s: str) -> str:
         if re.search(pat, out):
             out += add
     return out
-
-# -----------------------
-# Main
-# -----------------------
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Guided BERTopic — clearer macro topics (single folder)")
