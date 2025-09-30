@@ -12,7 +12,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from sentence_transformers import SentenceTransformer
 import argparse
 
-# Optional representations — guarded for compatibility
+# Optional representations 
 try:
     from bertopic.representation import KeyBERTInspired, PartOfSpeech
     HAVE_REP = True
@@ -27,9 +27,7 @@ try:
 except Exception:
     HAVE_CLUSTER = False
 
-# -----------------------
-# Defaults / Paths
-# -----------------------
+
 SNIPPET_MAX_CHARS = 1200
 SAMPLE_MAX = 120_000
 TOP_K_PER_DAY = 15
@@ -44,9 +42,6 @@ OUT_TOPIC_LABELS = Path("/Users/heiner/stock-market-model/data/bertopic/new/02_t
 PR_DOMAINS = ("businesswire", "globenewswire", "prnewswire")
 MACRO_RE = re.compile(r"\b(fed|fomc|powell|rates?|cpi|inflation|ppi|tariffs?|trade|china|jobs|nfp|unemployment|oil|opec|wti|brent|crude|earnings|eps|revenue)\b")
 
-# -----------------------
-# Loader
-# -----------------------
 
 def extract_record(js: dict):
     dt = js.get("published") or js.get("thread", {}).get("published")
@@ -80,10 +75,6 @@ def load_folder_recursive(root: Path) -> pd.DataFrame:
         except Exception:
             continue
     return pd.DataFrame(rows)
-
-# -----------------------
-# Text normalization and boosting
-# -----------------------
 
 FINANCE_STOPS = {
     # PR/IR boilerplate, legal forms
@@ -152,7 +143,7 @@ if __name__ == "__main__":
     ap.add_argument("--no-boost", action="store_true", help="Disable macro keyword boosting")
     args = ap.parse_args()
 
-    # Resolve folder (default: Feb 2018)
+    # Resolve folder 
     if args.folder is None:
         root = ROOT_PATH
         print(f"[info] No folder argument given. Using default: {root}")

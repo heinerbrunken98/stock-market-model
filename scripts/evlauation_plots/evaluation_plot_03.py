@@ -4,29 +4,26 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import re
 
-# =============== CONFIG ===============
 # Output folder
 OUT_DIR = Path("/Users/heiner/stock-market-model/out/Figures")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Input files (monthly aggregates)
+# Input files 
 ev_feb_path = "/Users/heiner/stock-market-model/out/events_topics/topics_frequency_event_days_top5_feb2018.csv"
 ev_mar_path = "/Users/heiner/stock-market-model/out/events_topics/topics_frequency_event_days_top5_mar2018.csv"
 re_feb_path = "/Users/heiner/stock-market-model/out/events_topics/topics_frequency_rest_days_top5_feb2018.csv"
 re_mar_path = "/Users/heiner/stock-market-model/out/events_topics/topics_frequency_rest_days_top5_mar2018.csv"
 
 TOP_K = 12
-COLOR_EVENT = "#ff91a4"  # lighter pink
-COLOR_REST  = "#1f77b4"  # standard matplotlib blue
-# =====================================
+COLOR_EVENT = "#ff91a4"  
+COLOR_REST  = "#1f77b4"  
 
-# ---- Load ----
-ev_feb = pd.read_csv(ev_feb_path)
+# loadev_feb = pd.read_csv(ev_feb_path)
 ev_mar = pd.read_csv(ev_mar_path)
 re_feb = pd.read_csv(re_feb_path)
 re_mar = pd.read_csv(re_mar_path)
 
-# ---- Normalize column names ----
+# normalize column names
 def normalize_topic_col(df):
     if "topic:" in df.columns:
         df = df.rename(columns={"topic:": "topic"})
@@ -42,7 +39,7 @@ ev_mar = normalize_topic_col(ev_mar)
 re_feb = normalize_topic_col(re_feb)
 re_mar = normalize_topic_col(re_mar)
 
-# ---- Topic cleaner -> topics_simple ----
+# topic cleaner 
 STOP = set("""
 the and of in for on to by with at from a an or as about into over under between during including
 until against among through above below out up down off again further then once
@@ -67,7 +64,7 @@ def simplify_topic(label: str, max_words: int = 3) -> str:
 for df in (ev_feb, ev_mar, re_feb, re_mar):
     df["topic_simple"] = df["topic"].apply(simplify_topic)
 
-# ---- Infer number of days per universe from share_days ≈ freq_days / N ----
+# Infer number of days per universe from share_days ≈ freq_days / N 
 def infer_num_days(df: pd.DataFrame) -> int:
     if "share_days" not in df.columns or df["share_days"].fillna(0).eq(0).all():
         return 0
@@ -81,7 +78,7 @@ def infer_num_days(df: pd.DataFrame) -> int:
 n_ev_days_total   = infer_num_days(ev_feb) + infer_num_days(ev_mar)
 n_rest_days_total = infer_num_days(re_feb) + infer_num_days(re_mar)
 
-# ---- Aggregate over both months per universe ----
+# Aggregate over both months per universe 
 def aggregate_two_months(df_a: pd.DataFrame, df_b: pd.DataFrame, prefix: str) -> pd.DataFrame:
     both = pd.concat([df_a, df_b], ignore_index=True)
     g = both.groupby("topic_simple", as_index=False).agg(
@@ -93,17 +90,17 @@ def aggregate_two_months(df_a: pd.DataFrame, df_b: pd.DataFrame, prefix: str) ->
 ev_all = aggregate_two_months(ev_feb, ev_mar, "event")
 re_all = aggregate_two_months(re_feb, re_mar, "rest")
 
-# ---- Intersection (topics present in both worlds) ----
+# Intersection (topics present in both worlds) 
 overlap = ev_all.merge(re_all, on="topic_simple", how="inner")
 
-# ---- Normalize to average counts per day (fair comparison) ----
+# Normalize to average counts per day (fair comparison) 
 overlap["avg_count_per_event_day"] = overlap["event_total_count"] / max(n_ev_days_total, 1)
 overlap["avg_count_per_rest_day"]  = overlap["rest_total_count"]  / max(n_rest_days_total, 1)
 
-# ---- Ranking metric: total presence across both universes ----
+# Ranking metric: total presence across both universes 
 overlap["total_presence_days"] = overlap["event_days"] + overlap["rest_days"]
 
-# ---- Sort & save summary CSV ----
+# Sort & save summary CSV 
 overlap_sorted = overlap.sort_values(
     ["total_presence_days", "event_total_count", "rest_total_count"],
     ascending=False
@@ -119,7 +116,7 @@ summary_cols = [
 summary_path = OUT_DIR / "overlap_event_vs_rest_summary.csv"
 overlap_sorted[summary_cols].to_csv(summary_path, index=False)
 
-# ---- Plot: grouped bars of average counts per day (Top-K by total presence) ----
+# Plot: grouped bars of average counts per day 
 plot_df = overlap_sorted.head(TOP_K).copy()
 x = np.arange(len(plot_df)); w = 0.35
 
