@@ -62,8 +62,13 @@ except Exception:
 SNIPPET_MAX_CHARS = 1200
 SAMPLE_MAX = 120_000
 TOP_K_PER_DAY = 15
-OUT_TOPICS = Path("/Users/heiner/stock-market-model/data/bertopic/new/03_daily_top15.parquet")
-OUT_TOPIC_LABELS = Path("/Users/heiner/stock-market-model/data/bertopic/new/03_topic_labels.parquet")
+
+ROOT_PATH = Path("/Users/heiner/archive/2018_02_112b52537b67659ad3609a234388c50a")
+# ROOT_PATH = Path("/Users/heiner/archive/2018_03_112b52537b67659ad3609a234388c50a")
+OUT_TOPICS = Path("/Users/heiner/stock-market-model/data/bertopic/new/02_daily_top15.parquet")
+# OUT_TOPICS = Path("/Users/heiner/stock-market-model/data/bertopic/new/03_daily_top15.parquet")
+OUT_TOPIC_LABELS = Path("/Users/heiner/stock-market-model/data/bertopic/new/02_topic_labels.parquet")
+# OUT_TOPIC_LABELS = Path("/Users/heiner/stock-market-model/data/bertopic/new/03_topic_labels.parquet")
 
 PR_DOMAINS = ("businesswire", "globenewswire", "prnewswire")
 MACRO_RE = re.compile(r"\b(fed|fomc|powell|rates?|cpi|inflation|ppi|tariffs?|trade|china|jobs|nfp|unemployment|oil|opec|wti|brent|crude|earnings|eps|revenue)\b")
@@ -182,7 +187,7 @@ if __name__ == "__main__":
 
     # Resolve folder (default: Feb 2018)
     if args.folder is None:
-        root = Path("/Users/heiner/archive/2018_03_112b52537b67659ad3609a234388c50a")
+        root = ROOT_PATH
         print(f"[info] No folder argument given. Using default: {root}")
     else:
         root = Path(args.folder)
